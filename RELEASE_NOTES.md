@@ -1,11 +1,16 @@
-# Beauty Camera Studio v1.0.0-beta
+# Beauty Camera Studio v1.0.1-beta
 
 🚧 **Pre-Release** - Professional AI-powered desktop beauty camera with virtual webcam support!
 
 > ⚠️ **This is a pre-release version** - Please test thoroughly and report any issues before we mark it as stable!
 
+## 🆕 What's New in v1.0.1
+- **Manual Focus Control** - New focus slider appears when autofocus is disabled
+- **Improved Camera Controls** - Complete manual control over camera settings
+- **Enhanced Profile System** - Focus settings now save/load with profiles
+
 ## 📦 Download
-- **BeautyCameraStudio-v1.0.0-beta-x86_64.AppImage** (3.6MB) - Compact portable version
+- **BeautyCameraStudio-v1.0.1-beta-x86_64.AppImage** (3.7MB) - Compact portable version
 
 > 🧪 **Beta Testing**: This is a pre-release version. Please test and provide feedback!
 
@@ -25,9 +30,9 @@
 
 ## 🚀 Quick Start
 1. **Download** the AppImage
-2. **Make executable**: `chmod +x BeautyCameraStudio-v1.0.0-beta-x86_64.AppImage`
+2. **Make executable**: `chmod +x BeautyCameraStudio-v1.0.1-beta-x86_64.AppImage`
 3. **Install virtual camera**: `sudo apt install v4l2loopback-dkms`
-4. **Run**: `./BeautyCameraStudio-v1.0.0-beta-x86_64.AppImage`
+4. **Run**: `./BeautyCameraStudio-v1.0.1-beta-x86_64.AppImage`
 5. **Use in apps**: Select "Virtual Camera 10" as your camera source
 
 ## 🔧 Troubleshooting
