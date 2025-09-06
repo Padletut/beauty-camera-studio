@@ -1,35 +1,21 @@
 <h1 align="center">
-  <a href="https://github.com/pixpark/gpupixel"><img src="./docs/image/cover.png"></a>
+  <a href="https://github.com/Padletut/beauty-camera-studio"><img src="./docs/image/cover.png"></a>
 </h1>
 
 <p align="center">
-  <a href="./README.md">English</a> |
-  <a href="./README_CN.md">简体中文</a>
+  <strong>Beauty Camera Studio</strong><br>
+  <em>AI-powered beauty camera desktop application with virtual webcam support</em>
 </p>
 
 <p align="center">
-  <a href="https://gpupixel.pixpark.net/" target="_blank">Doc</a>
-  <span> · </span>
-  <a href="https://gpupixel.pixpark.net/zh" target="_blank">文档</a>
+  Built on <a href="https://github.com/pixpark/gpupixel">GPUPixel</a> - A high-performance image and video filter library
 </p>
 
 <p align="center">
-   <a href="https://github.com/pixpark/gpupixel/stargazers"><img alt="GPUPixel Stars" src="https://img.shields.io/github/stars/pixpark/gpupixel?style=social"/></a>
-    <a href="https://github.com/pixpark/gpupixel/releases/latest"><img alt="GPUPixel Release" src="https://img.shields.io/github/v/release/pixpark/gpupixel"/></a>
-    <a href="#"><img alt="GPUPixel Stars" src="https://img.shields.io/badge/Platform-iOS_%7C_Android_%7C_Mac_%7C_Win_%7C_Linux-red"/></a>
-     <a href="https://github.com/pixpark/gpupixel/actions/workflows/build.yml"><img src="https://github.com/pixpark/gpupixel/actions/workflows/build.yml/badge.svg"></a>
-    <a href="https://github.com/pixpark/gpupixel/blob/main/LICENSE"><img alt="GPUPixel Stars" src="https://img.shields.io/github/license/pixpark/gpupixel"/></a>
-</p>
-
-<p align="center">
-<a href="https://discord.gg/q2MjmqK4" target="_blank"><img alt="GPUPixel Discord" src="https://img.shields.io/badge/Chat-Discord-blue?logo=discord&logoColor=white&labelColor=grey&color=blue"/></a>
-<a href="https://gpupixel.pixpark.net/about/contact#qq-group" target="_blank"><img alt="QQ Group" src="https://img.shields.io/badge/-QQ群-gray?logo=qq&logoColor=white&labelColor=gray&color=blue&style=flat"/></a>
-<a href="https://gpupixel.pixpark.net/about/contact#wechat-official-account" target="_blank"><img alt="GPUPixel Wechat" src="https://img.shields.io/badge/-公众号-gray?logo=wechat&logoColor=white&labelColor=gray&color=07C160&style=flat"/></a>
-<a href="https://github.com/pixpark/gpupixel#Sponsorship" target="_blank"><img alt="Sponsor" src="https://img.shields.io/badge/-Sponsor-gray?logo=githubsponsors&logoColor=white&labelColor=grey&color=FE6AB2&style=flat"/></a>
-</p>
-
-<p align="center">
-<a href="https://trendshift.io/repositories/7103" target="_blank"><img src="https://trendshift.io/api/badge/repositories/7103" alt="pixpark%2Fgpupixel | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+   <a href="https://github.com/Padletut/beauty-camera-studio/stargazers"><img alt="Beauty Camera Studio Stars" src="https://img.shields.io/github/stars/Padletut/beauty-camera-studio?style=social"/></a>
+    <a href="https://github.com/Padletut/beauty-camera-studio/releases/latest"><img alt="Beauty Camera Studio Release" src="https://img.shields.io/github/v/release/Padletut/beauty-camera-studio"/></a>
+    <a href="#"><img alt="Platform Support" src="https://img.shields.io/badge/Platform-Linux-blue"/></a>
+    <a href="https://github.com/Padletut/beauty-camera-studio/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Padletut/beauty-camera-studio"/></a>
 </p>
 
 ---
@@ -40,13 +26,32 @@
 
 ## Introduction
 
-🚀 A high-performance, cross-platform image and video filter library with a small footprint.
+🎥 **Beauty Camera Studio** is a professional AI-powered desktop beauty camera application for Linux with virtual webcam support.
 
-💻 Built with C++11 and OpenGL/ES, featuring beauty filters.
+🚀 Built on the high-performance **GPUPixel** library, featuring real-time beauty filters and AI face detection.
 
-🌐 Supports iOS, Android, Mac, Windows, and Linux—compatible with any OpenGL/ES platform.
+💻 Perfect for video calls, streaming, content creation, and any application requiring enhanced camera input.
 
-🎥 **NEW**: Complete Beauty Camera Studio desktop application with virtual webcam support for Discord, OBS, and more!
+🌐 **Virtual webcam integration** - works seamlessly with Discord, OBS, Zoom, Teams, and any application that supports video input.
+
+---
+
+## 🙏 **Built on GPUPixel**
+
+This application is built on the excellent [GPUPixel](https://github.com/pixpark/gpupixel) library by pixpark. GPUPixel provides the high-performance, cross-platform image and video filter foundation that makes Beauty Camera Studio possible.
+
+**Original GPUPixel features:**
+- ⚡ High-performance C++11 and OpenGL/ES implementation
+- 🌍 Cross-platform support (iOS, Android, Mac, Windows, Linux)
+- 🎨 Comprehensive filter and effect system
+- 📚 [Complete documentation](https://gpupixel.pixpark.net/)
+
+**Beauty Camera Studio additions:**
+- 🖥️ Complete desktop application interface
+- 📷 Virtual webcam output support
+- 🤖 AI face detection integration
+- 💾 Profile management system
+- 📦 AppImage distribution
 
 ## Effects Preview
 
@@ -68,8 +73,8 @@ Building on the GPUPixel library, this repository now includes **Beauty Camera S
 ### 🚀 Quick Start (Linux)
 ```bash
 # Clone and build
-git clone https://github.com/pixpark/gpupixel.git
-cd gpupixel
+git clone https://github.com/Padletut/beauty-camera-studio.git
+cd beauty-camera-studio
 ./script/build_linux.sh
 
 # Create AppImage (compact)
@@ -94,10 +99,19 @@ sudo modprobe v4l2loopback video_nr=10 card_label="Virtual Camera 10"
 ```
 
 ### 🎯 System Requirements
-- **OS**: Linux (x86_64) - Ubuntu 18.04+, Fedora 30+, Arch, etc.
+
+#### 📦 **AppImage Distribution (Recommended)**
+- **OS**: Linux (x86_64) with GLIBC 2.38+ 
+  - ✅ **Ubuntu 24.04+**, Fedora 40+, Arch (recent), OpenSUSE Tumbleweed
+  - ❌ **Ubuntu 20.04/22.04** (GLIBC 2.31/2.35 - use manual build instead)
 - **Graphics**: OpenGL support (any modern desktop)
 - **Camera**: USB webcam or built-in camera
-- **Dependencies**: OpenCV, v4l2loopback (for virtual camera)
+- **Virtual Camera**: `v4l2loopback-dkms` package
+
+#### 🔧 **Manual Build (Maximum Compatibility)**
+- **OS**: Linux (x86_64) - Ubuntu 18.04+, Fedora 30+, Arch, etc.
+- **Build Tools**: CMake, GCC/Clang, pkg-config
+- **Dependencies**: OpenCV, v4l2loopback (auto-installed during build)
  
 ## Before You Start
 ⭐ Star us on GitHub for notifications about new releases!
@@ -107,16 +121,20 @@ sudo modprobe v4l2loopback video_nr=10 card_label="Virtual Camera 10"
  
 ## Getting Started
 
-### 🏗️ Library Development
-🔍 See the docs: [Introduction](https://gpupixel.pixpark.net/guide/build) | [Build](https://gpupixel.pixpark.net/guide/build) | [Demo](https://gpupixel.pixpark.net/guide/demo) | [Integration](https://gpupixel.pixpark.net/guide/integrated)
-
-### 💻 Beauty Camera Studio Application
-For the complete desktop beauty camera app:
+### 🏗️ **For Beauty Camera Studio Users**
+Ready-to-use desktop beauty camera application:
 1. **Build**: `./script/build_linux.sh`
 2. **Run**: `./output/bin/app`
 3. **AppImage (Compact)**: `./appimage/build-appimage.sh` for 3.6MB portable package
 4. **AppImage (Compatible)**: `./appimage/build-appimage-linuxdeploy.sh` for 111MB with all dependencies
 5. **Virtual Camera**: Install `v4l2loopback` and select "Virtual Camera 10" in your apps
+
+### 🛠️ **For GPUPixel Library Development**
+To use the underlying GPUPixel library in your own projects:
+- 📖 See the original [GPUPixel documentation](https://gpupixel.pixpark.net/)
+- 🔧 [Build Guide](https://gpupixel.pixpark.net/guide/build)
+- 🎮 [Demo Examples](https://gpupixel.pixpark.net/guide/demo) 
+- 🔗 [Integration Guide](https://gpupixel.pixpark.net/guide/integrated)
 
 
 
