@@ -17,6 +17,7 @@ set(common_source_files
     ${CMAKE_CURRENT_SOURCE_DIR}/source/source.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/source/source_raw_data.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/source/source_image.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/source_camera.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_raw_data.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_render.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/sink/sink.cc
@@ -297,7 +298,8 @@ set_target_properties(
 
 target_include_directories(
   ${gpupixel_libs_name} PUBLIC ${PROJECT_SOURCE_DIR}/include
-                               ${CMAKE_CURRENT_SOURCE_DIR})
+                               ${CMAKE_CURRENT_SOURCE_DIR}
+                               ${OpenCV_INCLUDE_DIRS})
 
 if(WIN32 AND GPUPIXEL_BUILD_SHARED_LIBS)
   # Windows DLL export macro definition
@@ -373,11 +375,14 @@ if(APPLE)
   endif()
 endif()
 
+# Add OpenCV support for camera input
+find_package(OpenCV REQUIRED)
+
 # Library dependencies Linux platform dependencies
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   target_link_libraries(
     ${gpupixel_libs_name} PRIVATE GL libyuv::yuv stb::stb
-                                  glad::glad glfw::glfw)
+                                  glad::glad glfw::glfw ${OpenCV_LIBS})
 
   # Windows platform dependencies
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")

@@ -27,7 +27,8 @@ bool LipstickFilter::Init() {
   auto path = Util::GetResourcePath() / "res";
   auto mouth = SourceImage::Create((path / "mouth.png").string());
   SetImageTexture(mouth);
-  SetTextureBounds(FrameBounds{502.5, 710, 262.5, 167.5});
+  // Adjust bounds for 640x480 camera resolution
+  SetTextureBounds(FrameBounds{160, 320, 320, 160});  // Center region for testing
   return FaceMakeupFilter::Init();
 }
 

@@ -23,9 +23,8 @@ const std::string FaceMakeupFilterVertexShaderString = R"(
     })";
 #if defined(GPUPIXEL_GLES_SHADER)
 const std::string FaceMakeupFilterFragmentShaderString = R"(
-    precision mediump float; 
-    varying highp vec2 textureCoordinate;
-    varying highp vec2 textureCoordinate2;
+    varying vec2 textureCoordinate;
+    varying vec2 textureCoordinate2;
     uniform sampler2D inputImageTexture;
     uniform sampler2D inputImageTexture2;  // mouth
 
@@ -46,7 +45,9 @@ const std::string FaceMakeupFilterFragmentShaderString = R"(
     float blendSoftLight(float base, float blend) {
       return (blend < 0.5) ? (base + (2.0 * blend - 1.0) * (base - base * base))
                            : (base + (2.0 * blend - 1.0) * (sqrt(base) - base));
-    } vec3 blendSoftLight(vec3 base, vec3 blend) {
+    }
+    
+    vec3 blendSoftLight(vec3 base, vec3 blend) {
       return vec3(blendSoftLight(base.r, blend.r),
                   blendSoftLight(base.g, blend.g),
                   blendSoftLight(base.b, blend.b));
@@ -57,7 +58,9 @@ const std::string FaceMakeupFilterFragmentShaderString = R"(
     float blendOverlay(float base, float blend) {
       return base < 0.5 ? (2.0 * base * blend)
                         : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend));
-    } vec3 blendOverlay(vec3 base, vec3 blend) {
+    }
+    
+    vec3 blendOverlay(vec3 base, vec3 blend) {
       return vec3(blendOverlay(base.r, blend.r), blendOverlay(base.g, blend.g),
                   blendOverlay(base.b, blend.b));
     }
@@ -76,9 +79,9 @@ const std::string FaceMakeupFilterFragmentShaderString = R"(
     }
 
     void main() {
-      vec4 fgColor = texture2D(inputImageTexture2, textureCoordinate);  // mouth
+      vec4 fgColor = texture2D(inputImageTexture2, textureCoordinate2);  // mouth texture (makeup)
       fgColor = fgColor * intensity;
-      vec4 bgColor = texture2D(inputImageTexture, textureCoordinate2);
+      vec4 bgColor = texture2D(inputImageTexture, textureCoordinate);    // camera input
       if (fgColor.a == 0.0) {
         gl_FragColor = bgColor;
         return;
@@ -115,7 +118,9 @@ const std::string FaceMakeupFilterFragmentShaderString = R"(
     float blendSoftLight(float base, float blend) {
       return (blend < 0.5) ? (base + (2.0 * blend - 1.0) * (base - base * base))
                            : (base + (2.0 * blend - 1.0) * (sqrt(base) - base));
-    } vec3 blendSoftLight(vec3 base, vec3 blend) {
+    }
+    
+    vec3 blendSoftLight(vec3 base, vec3 blend) {
       return vec3(blendSoftLight(base.r, blend.r),
                   blendSoftLight(base.g, blend.g),
                   blendSoftLight(base.b, blend.b));
@@ -126,7 +131,9 @@ const std::string FaceMakeupFilterFragmentShaderString = R"(
     float blendOverlay(float base, float blend) {
       return base < 0.5 ? (2.0 * base * blend)
                         : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend));
-    } vec3 blendOverlay(vec3 base, vec3 blend) {
+    }
+    
+    vec3 blendOverlay(vec3 base, vec3 blend) {
       return vec3(blendOverlay(base.r, blend.r), blendOverlay(base.g, blend.g),
                   blendOverlay(base.b, blend.b));
     }
@@ -145,9 +152,9 @@ const std::string FaceMakeupFilterFragmentShaderString = R"(
     }
 
     void main() {
-      vec4 fgColor = texture2D(inputImageTexture2, textureCoordinate);  // mouth
+      vec4 fgColor = texture2D(inputImageTexture2, textureCoordinate2);  // mouth texture (makeup)
       fgColor = fgColor * intensity;
-      vec4 bgColor = texture2D(inputImageTexture, textureCoordinate2);
+      vec4 bgColor = texture2D(inputImageTexture, textureCoordinate);    // camera input
       if (fgColor.a == 0.0) {
         gl_FragColor = bgColor;
         return;

@@ -46,9 +46,58 @@
 
 🌐 Supports iOS, Android, Mac, Windows, and Linux—compatible with any OpenGL/ES platform.
 
+🎥 **NEW**: Complete Beauty Camera Studio desktop application with virtual webcam support for Discord, OBS, and more!
+
 ## Effects Preview
 
 https://github.com/user-attachments/assets/6b760fa6-e28f-4428-bfca-dec54a4e82d8
+
+## 🎥 Beauty Camera Studio Application
+
+Building on the GPUPixel library, this repository now includes **Beauty Camera Studio** - a complete desktop beauty camera application for Linux with virtual webcam support.
+
+### ✨ Features
+- **🎭 Real-time Beauty Effects**: Face smoothing, whitening, slimming, and eye enlargement
+- **🤖 AI Face Detection**: Real-time face tracking using OpenCV and Mars-Face models
+- **📷 Virtual Webcam**: Creates `/dev/video10` for use in Discord, OBS, Zoom, Teams, etc.
+- **🎨 Color Grading**: Multiple LUT-based color filters (Gray, Skin, Light, Custom)
+- **⚙️ Camera Controls**: Resolution, brightness, contrast, saturation, zoom, focus
+- **💾 Profile System**: Save and load beauty presets
+- **📦 Portable Distribution**: Ready-to-use AppImage for any Linux distro
+
+### 🚀 Quick Start (Linux)
+```bash
+# Clone and build
+git clone https://github.com/pixpark/gpupixel.git
+cd gpupixel
+./script/build_linux.sh
+
+# Create AppImage (compact)
+cd appimage
+./build-appimage.sh
+
+# OR create AppImage with LinuxDeploy (better compatibility)
+./build-appimage-linuxdeploy.sh
+
+# Run Beauty Camera Studio
+./output/bin/app  # or use the AppImage
+```
+
+### 📋 Virtual Camera Setup
+```bash
+# Install v4l2loopback for virtual camera support
+sudo apt install v4l2loopback-dkms  # Ubuntu/Debian
+sudo dnf install v4l2loopback        # Fedora
+sudo modprobe v4l2loopback video_nr=10 card_label="Virtual Camera 10"
+
+# Now select "Virtual Camera 10" in Discord, OBS, etc.
+```
+
+### 🎯 System Requirements
+- **OS**: Linux (x86_64) - Ubuntu 18.04+, Fedora 30+, Arch, etc.
+- **Graphics**: OpenGL support (any modern desktop)
+- **Camera**: USB webcam or built-in camera
+- **Dependencies**: OpenCV, v4l2loopback (for virtual camera)
  
 ## Before You Start
 ⭐ Star us on GitHub for notifications about new releases!
@@ -58,7 +107,16 @@ https://github.com/user-attachments/assets/6b760fa6-e28f-4428-bfca-dec54a4e82d8
  
 ## Getting Started
 
+### 🏗️ Library Development
 🔍 See the docs: [Introduction](https://gpupixel.pixpark.net/guide/build) | [Build](https://gpupixel.pixpark.net/guide/build) | [Demo](https://gpupixel.pixpark.net/guide/demo) | [Integration](https://gpupixel.pixpark.net/guide/integrated)
+
+### 💻 Beauty Camera Studio Application
+For the complete desktop beauty camera app:
+1. **Build**: `./script/build_linux.sh`
+2. **Run**: `./output/bin/app`
+3. **AppImage (Compact)**: `./appimage/build-appimage.sh` for 3.6MB portable package
+4. **AppImage (Compatible)**: `./appimage/build-appimage-linuxdeploy.sh` for 111MB with all dependencies
+5. **Virtual Camera**: Install `v4l2loopback` and select "Virtual Camera 10" in your apps
 
 
 

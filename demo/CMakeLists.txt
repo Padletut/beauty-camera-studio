@@ -1,10 +1,17 @@
 # ---- Application project definition ----
 # Main desktop demo application for GPUPixel library
+
+# Find OpenCV for camera support
+find_package(OpenCV REQUIRED)
+
 set(GPL_APP_NAME "app")
 
 # ---- Source files configuration ----
 # add desktop application source files
 set(APP_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/desktop/app.cc")
+
+# add OpenCV face detector
+list(APPEND APP_SOURCE_FILES "${PROJECT_SOURCE_DIR}/src/face_detector/opencv_face_detector.cc")
 
 # add ImGui source files ImGui provides the GUI components for the desktop demo
 file(GLOB IMGUI_SOURCE_FILES "${PROJECT_SOURCE_DIR}/third_party/imgui/*.cpp"
@@ -18,7 +25,9 @@ add_executable(${GPL_APP_NAME} ${APP_SOURCE_FILES})
 
 # set common include directories
 target_include_directories(${GPL_APP_NAME}
-                           PRIVATE ${PROJECT_SOURCE_DIR}/third_party/imgui)
+                           PRIVATE ${PROJECT_SOURCE_DIR}/third_party/imgui
+                                   ${PROJECT_SOURCE_DIR}/src
+                                   ${OpenCV_INCLUDE_DIRS})
 
 # ---- Platform-specific configuration ----
 # Each platform requires different compiler flags and linked libraries
@@ -74,7 +83,8 @@ else()
             glfw::glfw
             gpupixel::gpupixel
             ghc::filesystem
-            stdc++fs)
+            stdc++fs
+            ${OpenCV_LIBS})
 endif()
 
 # ---- Installation configuration ----

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <mutex>
+#include <thread>
 #include "core/gpupixel_framebuffer_factory.h"
 #include "gpupixel/filter/filter.h"
 #include "gpupixel/gpupixel_define.h"
@@ -61,6 +62,7 @@ class GPUPIXEL_API GPUPixelContext {
   FramebufferFactory* framebuffer_factory_;
   GPUPixelGLProgram* current_shader_program_;
   std::shared_ptr<DispatchQueue> task_queue_;
+  std::thread::id main_thread_id_;
 
 #if defined(GPUPIXEL_IOS)
   EAGLContext* egl_context_;

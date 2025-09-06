@@ -9,6 +9,7 @@
 #include "utils/dispatch_queue.h"
 #include "utils/logging.h"
 #include "utils/util.h"
+#include <thread>
 #if defined(GPUPIXEL_WASM)
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -21,6 +22,7 @@ std::mutex GPUPixelContext::mutex_;
 
 GPUPixelContext::GPUPixelContext() : current_shader_program_(0) {
   LOG_DEBUG("Creating GPUPixelContext");
+  main_thread_id_ = std::this_thread::get_id();
 #if !defined(GPUPIXEL_WASM)
   task_queue_ = std::make_shared<DispatchQueue>();
 #endif
@@ -53,10 +55,9 @@ void GPUPixelContext::Destroy() {
 }
 
 void GPUPixelContext::Init() {
-  SyncRunWithContext([=] {
-    LOG_INFO("Initializing GPUPixelContext");
-    this->CreateContext();
-  });
+  LOG_INFO("Initializing GPUPixelContext");
+  // Call CreateContext directly since SyncRunWithContext needs gl_context_ to be set first
+  this->CreateContext();
 }
 
 FramebufferFactory* GPUPixelContext::GetFramebufferFactory() const {
@@ -190,24 +191,17 @@ void GPUPixelContext::CreateContext() {
   LOG_INFO("Android EGL context created successfully");
 #elif defined(GPUPIXEL_WIN) || defined(GPUPIXEL_LINUX)
   LOG_DEBUG("Creating Windows/Linux OpenGL context");
-  int ret = glfwInit();
-
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-
-  if (ret) {
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+  
+  // Always use existing GLFW context - don't create a new one
+  GLFWwindow* existing_context = glfwGetCurrentContext();
+  if (existing_context) {
+    LOG_INFO("Using existing GLFW context");
+    gl_context_ = existing_context;
+    // Don't call glfwMakeContextCurrent here as the context is already current
   } else {
-    LOG_ERROR("Failed to initialize GLFW");
+    LOG_ERROR("No existing GLFW context found. GPUPixel requires an existing OpenGL context.");
     return;
   }
-  gl_context_ = glfwCreateWindow(1, 1, "gpupixel opengl context", NULL, NULL);
-  if (!gl_context_) {
-    LOG_ERROR("Failed to create GLFW window");
-    glfwTerminate();
-    return;
-  }
-  glfwMakeContextCurrent(gl_context_);
 
   if (!gladLoadGL()) {
     LOG_ERROR("Failed to initialize GLAD");
@@ -247,9 +241,17 @@ void GPUPixelContext::UseAsCurrent() {
     eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_);
   }
 #elif defined(GPUPIXEL_WIN) || defined(GPUPIXEL_LINUX)
+  // Since we're using the existing main context, only switch if necessary
   if (glfwGetCurrentContext() != gl_context_) {
-    LOG_TRACE("Setting current GLFW context");
-    glfwMakeContextCurrent(gl_context_);
+    // Check if we're in the main thread by comparing with the thread that created the context
+    if (std::this_thread::get_id() == main_thread_id_) {
+      LOG_TRACE("Setting current GLFW context in main thread");
+      glfwMakeContextCurrent(gl_context_);
+    } else {
+      LOG_WARN("Skipping glfwMakeContextCurrent call from non-main thread - context ID mismatch");
+    }
+  } else {
+    LOG_TRACE("GLFW context already current, no switch needed");
   }
 #elif defined(GPUPIXEL_WASM)
   LOG_TRACE("Setting current WebGL context");
@@ -293,12 +295,9 @@ void GPUPixelContext::ReleaseContext() {
     egl_display_ = EGL_NO_DISPLAY;
   }
 #elif defined(GPUPIXEL_WIN) || defined(GPUPIXEL_LINUX)
-  if (gl_context_) {
-    LOG_TRACE("Destroying GLFW window");
-    glfwDestroyWindow(gl_context_);
-  }
-  LOG_TRACE("Terminating GLFW");
-  glfwTerminate();
+  // Don't destroy the context since it belongs to the main application
+  LOG_TRACE("Not destroying GLFW context - managed by main application");
+  gl_context_ = nullptr;
 #elif defined(GPUPIXEL_WASM)
   LOG_TRACE("Destroying WebGL context");
   emscripten_webgl_destroy_context(wasm_context_);
@@ -318,11 +317,18 @@ void GPUPixelContext::SyncRunWithContext(std::function<void(void)> task) {
   UseAsCurrent();
   task();
 #else
-  LOG_TRACE("Running task on task queue");
-  task_queue_->runTask([=]() {
+  // Check if we're already in the main thread
+  if (std::this_thread::get_id() == main_thread_id_) {
+    LOG_TRACE("Running task directly in main thread");
     UseAsCurrent();
     task();
-  });
+  } else {
+    LOG_TRACE("Running task on task queue");
+    task_queue_->runTask([=]() {
+      UseAsCurrent();
+      task();
+    });
+  }
 #endif
 }
 }  // namespace gpupixel

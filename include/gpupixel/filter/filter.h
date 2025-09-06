@@ -28,7 +28,7 @@ const std::string kDefaultVertexShader = R"(
 
 #if defined(GPUPIXEL_GLES_SHADER)
 GPUPIXEL_API const std::string kDefaultFragmentShader = R"(
-    varying highp vec2 textureCoordinate; uniform sampler2D inputImageTexture;
+    varying vec2 textureCoordinate; uniform sampler2D inputImageTexture;
 
     void main() {
       gl_FragColor = texture2D(inputImageTexture, textureCoordinate);

@@ -7,6 +7,13 @@ docs/docs/.vitepress/cache/
 docs/docs/.vitepress/dist/
 output/
 
+# AppImage build outputs
+appimage/build/
+appimage/build-linuxdeploy/
+appimage/*.AppImage
+appimage/linuxdeploy-x86_64.AppImage
+appimage/appimagetool-x86_64.AppImage
+
 # Xcode
 #
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
@@ -644,3 +651,4 @@ src/android/java/gpupixel/.cxx
 demo/android/app/libs
 gpupixel/android/java/gpupixel/.cxx
 imgui.ini
+appimage/
