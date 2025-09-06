@@ -8,6 +8,9 @@ docs/docs/.vitepress/dist/
 output/
 
 # AppImage build outputs
+*.AppImage
+appimage/build/
+appimage/build-linuxdeploy/
 appimage/build/
 appimage/build-linuxdeploy/
 appimage/*.AppImage
