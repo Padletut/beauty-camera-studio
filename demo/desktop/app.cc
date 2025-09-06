@@ -91,6 +91,7 @@ struct BeautyProfile {
   float camera_sharpness;
   float camera_zoom;
   bool camera_auto_focus;
+  float camera_focus;
   bool camera_auto_gain;
   
   // Resolution settings
@@ -102,19 +103,19 @@ struct BeautyProfile {
                     color_tint_strength(0.0f), warmth_strength(0.0f),
                     camera_brightness(0.0f), camera_contrast(50.0f), camera_saturation(50.0f),
                     camera_gain(0.0f), camera_sharpness(50.0f), camera_zoom(100.0f),
-                    camera_auto_focus(true), camera_auto_gain(true),
+                    camera_auto_focus(true), camera_focus(50.0f), camera_auto_gain(true),
                     resolution_width(640), resolution_height(480) {}
                     
   BeautyProfile(const std::string& n, float beauty, float whitening, float slim,
                 float eye, float tint, float warmth, float brightness, float contrast,
                 float saturation, float gain, float sharpness, float zoom,
-                bool auto_focus, bool auto_gain, int width, int height)
+                bool auto_focus, float focus, bool auto_gain, int width, int height)
     : name(n), beauty_strength(beauty), whitening_strength(whitening),
       face_slim_strength(slim), eye_enlarge_strength(eye),
       color_tint_strength(tint), warmth_strength(warmth),
       camera_brightness(brightness), camera_contrast(contrast), camera_saturation(saturation),
       camera_gain(gain), camera_sharpness(sharpness), camera_zoom(zoom),
-      camera_auto_focus(auto_focus), camera_auto_gain(auto_gain),
+      camera_auto_focus(auto_focus), camera_focus(focus), camera_auto_gain(auto_gain),
       resolution_width(width), resolution_height(height) {}
 };
 
@@ -140,6 +141,7 @@ float camera_gain_ = 50.0f;             // Camera gain (0 to 100)
 float camera_sharpness_ = 50.0f;        // Camera sharpness (0 to 100)
 float camera_zoom_ = 100.0f;            // Camera zoom (100 to 500)
 bool camera_auto_focus_ = true;         // Camera auto focus
+float camera_focus_ = 50.0f;            // Manual focus value (0 to 100)
 bool camera_auto_gain_ = true;          // Camera auto gain (auto exposure)
 bool camera_settings_changed_ = false;  // Flag for camera settings changes
 
@@ -612,6 +614,19 @@ void ApplyCameraSettings() {
     std::cout << "  Auto Focus: " << (camera_auto_focus_ ? "ON" : "OFF") << std::endl;
   }
   
+  // Manual Focus (only when autofocus is disabled)
+  if (!camera_auto_focus_) {
+    // Focus absolute usually ranges from 0 to some max value (often 255 or 1023)
+    // We'll map our 0-100% to a 0-255 range for most webcams
+    int focus_v4l2 = (int)(camera_focus_ * 255.0 / 100.0);
+    focus_v4l2 = std::max(0, std::min(255, focus_v4l2));
+    std::string focus_cmd = "v4l2-ctl --device=/dev/video" + std::to_string(current_camera_id_) + 
+                            " --set-ctrl=focus_absolute=" + std::to_string(focus_v4l2);
+    if (system(focus_cmd.c_str()) == 0) {
+      std::cout << "  Manual Focus: " << camera_focus_ << "% (v4l2: " << focus_v4l2 << ")" << std::endl;
+    }
+  }
+  
   std::cout << "Camera settings applied successfully using v4l2-ctl" << std::endl;
 }
 
@@ -694,6 +709,14 @@ void GetCurrentCameraSettings() {
   if (autofocus_v4l2 >= 0) {
     camera_auto_focus_ = (autofocus_v4l2 > 0);
     std::cout << "  Auto Focus: " << (camera_auto_focus_ ? "ON" : "OFF") << " (v4l2: " << autofocus_v4l2 << ")" << std::endl;
+  }
+  
+  // Read manual focus value (only relevant when autofocus is off)
+  int focus_v4l2 = getControlValue("focus_absolute");
+  if (focus_v4l2 >= 0) {
+    camera_focus_ = (float)(focus_v4l2 * 100.0 / 255.0);  // Convert back from v4l2 range to our 0-100%
+    camera_focus_ = std::max(0.0f, std::min(100.0f, camera_focus_));
+    std::cout << "  Manual Focus: " << camera_focus_ << "% (v4l2: " << focus_v4l2 << ")" << std::endl;
   }
   
   std::cout << "Current camera settings retrieved successfully" << std::endl;
@@ -1197,6 +1220,13 @@ void UpdateFilterParametersFromUI() {
     camera_settings_changed = true;
   }
   
+  // Manual focus slider (only when autofocus is disabled)
+  if (!camera_auto_focus_) {
+    if (ImGui::SliderFloat("Manual Focus", &camera_focus_, 0.0f, 100.0f, "%.0f%%")) {
+      camera_settings_changed = true;
+    }
+  }
+  
   // Apply settings button
   if (ImGui::Button("Apply Camera Settings") || camera_settings_changed) {
     ApplyCameraSettings();
@@ -1212,6 +1242,7 @@ void UpdateFilterParametersFromUI() {
     camera_sharpness_ = 50.0f;
     camera_zoom_ = 100.0f;
     camera_auto_focus_ = true;
+    camera_focus_ = 50.0f;
     camera_auto_gain_ = true;  // Default to auto gain
     ApplyCameraSettings();
     camera_settings_changed_ = true;
@@ -1836,7 +1867,7 @@ void SaveBeautyProfile(const std::string& name) {
                        color_tint_strength_, warmth_strength_,
                        camera_brightness_, camera_contrast_, camera_saturation_,
                        camera_gain_, camera_sharpness_, camera_zoom_,
-                       camera_auto_focus_, camera_auto_gain_,
+                       camera_auto_focus_, camera_focus_, camera_auto_gain_,
                        current_width, current_height);
   
   beauty_profiles_[name] = profile;
@@ -1884,6 +1915,7 @@ void LoadBeautyProfile(const std::string& name) {
     camera_sharpness_ = profile.camera_sharpness;
     camera_zoom_ = profile.camera_zoom;
     camera_auto_focus_ = profile.camera_auto_focus;
+    camera_focus_ = profile.camera_focus;
     camera_auto_gain_ = profile.camera_auto_gain;
     
     // Find and set the resolution
@@ -1953,6 +1985,7 @@ void SaveProfilesToFile() {
            << profile.camera_zoom << "|"
            << (profile.camera_auto_focus ? 1 : 0) << "|"
            << (profile.camera_auto_gain ? 1 : 0) << "|"
+           << profile.camera_focus << "|"
            << profile.resolution_width << "|"
            << profile.resolution_height << std::endl;
     }
@@ -2000,6 +2033,7 @@ void LoadProfilesFromFile() {
         if (std::getline(iss, token, '|')) profile.camera_zoom = std::stof(token);
         if (std::getline(iss, token, '|')) profile.camera_auto_focus = (std::stoi(token) != 0);
         if (std::getline(iss, token, '|')) profile.camera_auto_gain = (std::stoi(token) != 0);
+        if (std::getline(iss, token, '|')) profile.camera_focus = std::stof(token);  // Optional field for backward compatibility
         if (std::getline(iss, token, '|')) profile.resolution_width = std::stoi(token);
         if (std::getline(iss, token, '|')) profile.resolution_height = std::stoi(token);
         
