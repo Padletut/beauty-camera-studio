@@ -36,6 +36,9 @@ using fstream = ghc::filesystem::fstream;
 #include "gpupixel/source/source_camera.h"
 #include "face_detector/opencv_face_detector.h"
 #include "gpupixel/filter/lipstick_filter.h"
+#include "gpupixel/filter/blusher_filter.h"
+#include "gpupixel/utils/mediapipe_segmentation.h"
+#include "gpupixel/utils/rvm_processor.h"
 #include "imgui.h"
 #include <opencv2/opencv.hpp>
 #include <fcntl.h>
@@ -44,13 +47,19 @@ using fstream = ghc::filesystem::fstream;
 #include <unistd.h>
 #include <cstring>
 #include <vector>
+#include <fstream>
+#include <cstdio>
 
 using namespace gpupixel;
+
+// Global MediaPipe segmentation instance
+std::unique_ptr<MediaPipeSegmentation> mediapipe_segmentation;
 
 // Filters
 std::shared_ptr<BeautyFaceFilter> beauty_filter_;
 std::shared_ptr<FaceReshapeFilter> reshape_filter_;
 std::shared_ptr<LipstickFilter> lipstick_filter_;   // For lipstick effect using face landmarks
+std::shared_ptr<BlusherFilter> blusher_filter_;     // For blusher effect using face landmarks
 std::shared_ptr<SaturationFilter> saturation_filter_; // For blusher-like effect
 std::shared_ptr<SourceCamera> source_camera_;
 std::shared_ptr<SinkRawData> sink_raw_data_;
@@ -69,8 +78,44 @@ float eye_enlarge_strength_ = 0.0f;
 float color_tint_strength_ = 0.0f;      // For lipstick-like effect
 float warmth_strength_ = 0.0f;          // For blusher-like effect
 
+// MediaPipe AI Segmentation parameters
+float ai_confidence_threshold_ = 0.1f;  // AI confidence threshold (0.3-0.8) - MediaPipe default
+float ai_temporal_smoothing_ = 0.7f;    // AI temporal smoothing (0.3-0.9) - Optimized for streaming
+
+// RVM Enhanced Processing parameters
+bool enable_rvm_processing_ = false;    // Enable RVM-style processing
+int rvm_temporal_buffer_size_ = 5;      // RVM temporal buffer size (3-10)
+float rvm_temporal_weight_ = 0.3f;      // RVM temporal weight (0.1-0.8)
+float rvm_motion_threshold_ = 0.1f;     // RVM motion threshold (0.05-0.3)
+bool rvm_motion_compensation_ = true;   // RVM motion compensation
+bool rvm_edge_refinement_ = true;       // RVM edge refinement
+
+// Background Detection Configuration
+int target_class_selection_ = 0;        // 0=AUTO_DETECT, 1=PERSON, 2=BACKGROUND
+bool output_confidence_masks_ = true;   // Output confidence masks
+bool output_category_mask_ = false;     // Output category masks
+
 // Debug options
 bool show_face_detection_ = false;      // Show face detection rectangles
+bool show_body_detection_ = false;      // Show body/person detection mask
+
+// For body detection visualization
+cv::Mat last_person_mask_;
+
+// Background Effects
+enum class BackgroundMode {
+  NONE = 0,
+  BLUR,
+  CUSTOM_IMAGE
+};
+
+BackgroundMode background_mode_ = BackgroundMode::BLUR;
+float background_blur_strength_ = 15.0f;  // Blur kernel size (5-51, odd numbers)
+std::string custom_background_path_ = "";
+cv::Mat custom_background_image_;
+bool background_image_loaded_ = false;
+
+// MediaPipe Persistent Process - Removed unused code
 
 // Beauty Profile System
 struct BeautyProfile {
@@ -861,6 +906,7 @@ void SetupFilterPipeline() {
   // Keep others created but don't add to pipeline
   reshape_filter_ = FaceReshapeFilter::Create();
   lipstick_filter_ = LipstickFilter::Create();    // Lipstick effect using face landmarks
+  blusher_filter_ = BlusherFilter::Create();      // Blusher effect using face landmarks
   saturation_filter_ = SaturationFilter::Create();
 
 #ifdef GPUPIXEL_ENABLE_FACE_DETECTOR
@@ -1260,6 +1306,99 @@ void UpdateFilterParametersFromUI() {
       opencv_face_detector_->SetDebugMode(show_face_detection_);
     }
   }
+  
+  if (ImGui::Checkbox("Show Body Detection", &show_body_detection_)) {
+    // Body detection visualization will be handled in rendering
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Background Effects:");
+  
+  // Background mode selection
+  const char* background_modes[] = { "None", "Blur", "Custom Image" };
+  int current_mode = static_cast<int>(background_mode_);
+  
+  if (ImGui::Combo("Background Mode", &current_mode, background_modes, 3)) {
+    background_mode_ = static_cast<BackgroundMode>(current_mode);
+  }
+  
+  // Blur strength slider (only show when Blur is selected)
+  if (background_mode_ == BackgroundMode::BLUR) {
+    if (ImGui::SliderFloat("Blur Strength", &background_blur_strength_, 5.0f, 51.0f, "%.0f")) {
+      // Ensure odd kernel size for Gaussian blur
+      int kernel_size = static_cast<int>(background_blur_strength_);
+      if (kernel_size % 2 == 0) {
+        background_blur_strength_ = static_cast<float>(kernel_size + 1);
+      }
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(Higher = More Blur)");
+  }
+  
+  // Custom image selection (only show when Custom Image is selected)
+  if (background_mode_ == BackgroundMode::CUSTOM_IMAGE) {
+    ImGui::Text("Custom Background Image:");
+    
+    // Display current image path
+    if (!custom_background_path_.empty()) {
+      ImGui::Text("Current: %s", custom_background_path_.c_str());
+      if (background_image_loaded_) {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "✓ Image loaded successfully");
+      } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "✗ Failed to load image");
+      }
+    } else {
+      ImGui::Text("No image selected");
+    }
+    
+    // Browse button
+    if (ImGui::Button("Browse Image...")) {
+      // For now, show a text input - in a full implementation you'd use a file dialog
+      ImGui::OpenPopup("Enter Image Path");
+    }
+    
+    // Simple path input popup
+    if (ImGui::BeginPopupModal("Enter Image Path", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+      static char image_path_buffer[512] = "";
+      
+      ImGui::Text("Enter path to background image:");
+      ImGui::InputText("Path", image_path_buffer, sizeof(image_path_buffer));
+      
+      if (ImGui::Button("Load")) {
+        custom_background_path_ = std::string(image_path_buffer);
+        
+        // Try to load the image
+        custom_background_image_ = cv::imread(custom_background_path_);
+        background_image_loaded_ = !custom_background_image_.empty();
+        
+        if (background_image_loaded_) {
+          std::cout << "Successfully loaded background image: " << custom_background_path_ << std::endl;
+          std::cout << "Image size: " << custom_background_image_.cols << "x" << custom_background_image_.rows << std::endl;
+        } else {
+          std::cout << "Failed to load background image: " << custom_background_path_ << std::endl;
+        }
+        
+        ImGui::CloseCurrentPopup();
+      }
+      
+      ImGui::SameLine();
+      if (ImGui::Button("Cancel")) {
+        ImGui::CloseCurrentPopup();
+      }
+      
+      ImGui::EndPopup();
+    }
+    
+    // Clear button
+    if (!custom_background_path_.empty()) {
+      ImGui::SameLine();
+      if (ImGui::Button("Clear")) {
+        custom_background_path_.clear();
+        custom_background_image_.release();
+        background_image_loaded_ = false;
+      }
+    }
+  }
 
   // Beauty Profile Management
   ImGui::Separator();
@@ -1402,6 +1541,155 @@ void UpdateFilterParametersFromUI() {
   
   ImGui::Text("Use in Discord, OBS, Zoom, etc.");
 
+  // AI Segmentation Controls
+  ImGui::Separator();
+  ImGui::Text("AI Segmentation Parameters:");
+  
+  if (ImGui::SliderFloat("AI Confidence Threshold", &ai_confidence_threshold_, 0.00f, 0.8f, "%.2f")) {
+    if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+      mediapipe_segmentation->SetConfidenceThreshold(ai_confidence_threshold_);
+      std::cout << "[AI] Updated confidence threshold to: " << ai_confidence_threshold_ << std::endl;
+    }
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("MediaPipe confidence: 0.3=sensitive, 0.5=balanced, 0.8=strict");
+  }
+  
+  if (ImGui::SliderFloat("AI Temporal Smoothing", &ai_temporal_smoothing_, 0.00f, 0.9f, "%.2f")) {
+    if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+      mediapipe_segmentation->SetTemporalSmoothing(true, ai_temporal_smoothing_);
+      std::cout << "[AI] Updated temporal smoothing to: " << ai_temporal_smoothing_ << std::endl;
+    }
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Lower values = faster response to movement, higher values = smoother but slower response");
+  }
+
+  // RVM Enhanced Processing Controls
+  ImGui::Separator();
+  ImGui::Text("RVM Enhanced Processing:");
+  
+  if (ImGui::Checkbox("Enable RVM Processing", &enable_rvm_processing_)) {
+    if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+      RVMProcessor::RVMConfig rvm_config;
+      rvm_config.temporal_buffer_size = rvm_temporal_buffer_size_;
+      rvm_config.temporal_weight = rvm_temporal_weight_;
+      rvm_config.motion_threshold = rvm_motion_threshold_;
+      rvm_config.enable_motion_compensation = rvm_motion_compensation_;
+      rvm_config.enable_edge_refinement = rvm_edge_refinement_;
+      
+      mediapipe_segmentation->SetRVMProcessing(enable_rvm_processing_, rvm_config);
+      std::cout << "[RVM] Enhanced processing: " << (enable_rvm_processing_ ? "enabled" : "disabled") << std::endl;
+    }
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Enable RVM (Robust Video Matting) style temporal consistency and edge refinement");
+  }
+  
+  if (enable_rvm_processing_) {
+    if (ImGui::SliderInt("RVM Buffer Size", &rvm_temporal_buffer_size_, 3, 10)) {
+      if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+        RVMProcessor::RVMConfig rvm_config;
+        rvm_config.temporal_buffer_size = rvm_temporal_buffer_size_;
+        rvm_config.temporal_weight = rvm_temporal_weight_;
+        rvm_config.motion_threshold = rvm_motion_threshold_;
+        rvm_config.enable_motion_compensation = rvm_motion_compensation_;
+        rvm_config.enable_edge_refinement = rvm_edge_refinement_;
+        mediapipe_segmentation->SetRVMProcessing(true, rvm_config);
+      }
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Number of frames used for temporal consistency (3-10)");
+    }
+    
+    if (ImGui::SliderFloat("RVM Temporal Weight", &rvm_temporal_weight_, 0.1f, 0.8f, "%.2f")) {
+      if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+        RVMProcessor::RVMConfig rvm_config;
+        rvm_config.temporal_buffer_size = rvm_temporal_buffer_size_;
+        rvm_config.temporal_weight = rvm_temporal_weight_;
+        rvm_config.motion_threshold = rvm_motion_threshold_;
+        rvm_config.enable_motion_compensation = rvm_motion_compensation_;
+        rvm_config.enable_edge_refinement = rvm_edge_refinement_;
+        mediapipe_segmentation->SetRVMProcessing(true, rvm_config);
+      }
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Strength of temporal smoothing (0.1=light, 0.8=strong)");
+    }
+    
+    if (ImGui::SliderFloat("Motion Threshold", &rvm_motion_threshold_, 0.05f, 0.3f, "%.3f")) {
+      if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+        RVMProcessor::RVMConfig rvm_config;
+        rvm_config.temporal_buffer_size = rvm_temporal_buffer_size_;
+        rvm_config.temporal_weight = rvm_temporal_weight_;
+        rvm_config.motion_threshold = rvm_motion_threshold_;
+        rvm_config.enable_motion_compensation = rvm_motion_compensation_;
+        rvm_config.enable_edge_refinement = rvm_edge_refinement_;
+        mediapipe_segmentation->SetRVMProcessing(true, rvm_config);
+      }
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Motion detection sensitivity (0.05=very sensitive, 0.3=less sensitive)");
+    }
+    
+    if (ImGui::Checkbox("Motion Compensation", &rvm_motion_compensation_)) {
+      if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+        RVMProcessor::RVMConfig rvm_config;
+        rvm_config.temporal_buffer_size = rvm_temporal_buffer_size_;
+        rvm_config.temporal_weight = rvm_temporal_weight_;
+        rvm_config.motion_threshold = rvm_motion_threshold_;
+        rvm_config.enable_motion_compensation = rvm_motion_compensation_;
+        rvm_config.enable_edge_refinement = rvm_edge_refinement_;
+        mediapipe_segmentation->SetRVMProcessing(true, rvm_config);
+      }
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Reduce temporal smoothing in high-motion areas");
+    }
+    
+    if (ImGui::Checkbox("Edge Refinement", &rvm_edge_refinement_)) {
+      if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+        RVMProcessor::RVMConfig rvm_config;
+        rvm_config.temporal_buffer_size = rvm_temporal_buffer_size_;
+        rvm_config.temporal_weight = rvm_temporal_weight_;
+        rvm_config.motion_threshold = rvm_motion_threshold_;
+        rvm_config.enable_motion_compensation = rvm_motion_compensation_;
+        rvm_config.enable_edge_refinement = rvm_edge_refinement_;
+        mediapipe_segmentation->SetRVMProcessing(true, rvm_config);
+      }
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Enhanced edge quality using guided filtering");
+    }
+  }
+
+  // Background Detection Configuration
+  ImGui::Separator();
+  ImGui::Text("Background Detection Configuration:");
+  
+  const char* target_class_items[] = { "Auto Detect", "Person Focus", "Background Focus" };
+  if (ImGui::Combo("Target Class", &target_class_selection_, target_class_items, IM_ARRAYSIZE(target_class_items))) {
+    std::cout << "[AI] Target class changed to: " << target_class_items[target_class_selection_] << std::endl;
+    // Note: Configuration will be applied on next initialization
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Auto Detect: Standard segmentation\nPerson Focus: Optimize for person detection\nBackground Focus: Optimize for background detection");
+  }
+  
+  if (ImGui::Checkbox("Output Confidence Masks", &output_confidence_masks_)) {
+    std::cout << "[AI] Confidence masks: " << (output_confidence_masks_ ? "enabled" : "disabled") << std::endl;
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Enable confidence-based mask output for fine-grained control");
+  }
+  
+  if (ImGui::Checkbox("Output Category Masks", &output_category_mask_)) {
+    std::cout << "[AI] Category masks: " << (output_category_mask_ ? "enabled" : "disabled") << std::endl;
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Enable categorical mask output for class-specific processing");
+  }
+
   ImGui::End();
 
   // Note: Pipeline processing is now handled continuously in the main render loop
@@ -1423,6 +1711,387 @@ void UpdateFilterParameters() {
   
   float warmth = warmth_strength_ / 10.0f;
   saturation_filter_->setSaturation(1.0f + warmth * 0.5f);
+}
+
+// Load and use MediaPipe AI segmentation for real-time streaming
+std::vector<unsigned char> ApplyAISegmentation(const unsigned char* rgba_data, int width, int height) {
+  if (!rgba_data || width <= 0 || height <= 0) {
+    return std::vector<unsigned char>(rgba_data, rgba_data + (width * height * 4));
+  }
+  
+  static bool segmentation_initialized = false;
+  static cv::Mat cached_mask;
+  static int frame_counter = 0;
+  static auto last_segmentation_time = std::chrono::high_resolution_clock::now();
+  frame_counter++;
+  
+  // Initialize MediaPipe segmentation once
+  if (!segmentation_initialized) {
+    mediapipe_segmentation = std::make_unique<MediaPipeSegmentation>();
+    
+    // Create MediaPipe configuration with new background detection options
+    MediaPipeConfig config;
+    config.running_mode = MediaPipeConfig::LIVE_STREAM;
+    
+    // Map UI selection to target class
+    switch (target_class_selection_) {
+      case 0: config.target_class = MediaPipeConfig::AUTO_DETECT; break;
+      case 1: config.target_class = MediaPipeConfig::PERSON; break;
+      case 2: config.target_class = MediaPipeConfig::BACKGROUND; break;
+      default: config.target_class = MediaPipeConfig::AUTO_DETECT; break;
+    }
+    
+    config.output_confidence_masks = output_confidence_masks_;
+    config.output_category_mask = output_category_mask_;
+    config.confidence_threshold = ai_confidence_threshold_;
+    config.temporal_smoothing = true;
+    
+    // Test different models with OpenCV 4.12.0 (prioritize MobileNet-v2 for compatibility)
+    std::vector<std::string> test_models = {
+        "/home/padletut/gpupixel/models/mobilenet_v2.onnx",                           // MobileNet-v2: Good OpenCV compatibility
+        "/home/padletut/gpupixel/models/modnet.onnx",                                 // MODNet: High-quality portrait matting
+        "/home/padletut/gpupixel/models/mediapipe_landscape_segmentation.onnx",
+        "/home/padletut/gpupixel/models/mediapipe_selfie_segmentation.onnx",
+        "/home/padletut/gpupixel/models/selfie_multiclass.onnx"
+    };
+    
+    bool model_loaded = false;
+    for (const auto& model_path : test_models) {
+        std::cout << "[TEST] Testing model: " << model_path << std::endl;
+        if (mediapipe_segmentation->Initialize(model_path, config)) {
+            std::cout << "[SUCCESS] Model loaded with background detection config: " << model_path << std::endl;
+            const char* target_names[] = { "AUTO_DETECT", "PERSON", "BACKGROUND" };
+            std::cout << "[CONFIG] Target Class: " << target_names[target_class_selection_] << std::endl;
+            std::cout << "[CONFIG] Confidence Masks: " << (output_confidence_masks_ ? "enabled" : "disabled") << std::endl;
+            std::cout << "[CONFIG] Category Masks: " << (output_category_mask_ ? "enabled" : "disabled") << std::endl;
+            model_loaded = true;
+            break;
+        } else {
+            std::cout << "[FAILED] Model failed to load: " << model_path << std::endl;
+        }
+    }
+    
+    if (model_loaded) {
+      // Initialize with current UI values
+      mediapipe_segmentation->SetConfidenceThreshold(ai_confidence_threshold_);
+      mediapipe_segmentation->SetTemporalSmoothing(true, ai_temporal_smoothing_);
+      segmentation_initialized = true;
+      std::cout << "[AI] MediaPipe C++ Segmentation initialized for real-time streaming" << std::endl;
+    } else {
+      std::cout << "[AI] Failed to initialize MediaPipe segmentation" << std::endl;
+      mediapipe_segmentation.reset();
+    }
+  }
+  
+  // Check if background effects are enabled
+  bool segmentation_enabled = (background_mode_ != BackgroundMode::NONE);
+  
+  // Get raw camera input for MediaPipe (unfiltered for better detection)
+  cv::Mat raw_camera_frame;
+  cv::Mat bgr_mat;
+  if (source_camera_ && segmentation_enabled) {
+    raw_camera_frame = source_camera_->GetLatestFrame();
+    if (!raw_camera_frame.empty()) {
+      // Convert raw camera BGR to our expected format
+      if (raw_camera_frame.channels() == 3) {
+        bgr_mat = raw_camera_frame.clone();
+      } else if (raw_camera_frame.channels() == 4) {
+        cv::cvtColor(raw_camera_frame, bgr_mat, cv::COLOR_BGRA2BGR);
+      }
+      // Flip to match display orientation
+      cv::flip(bgr_mat, bgr_mat, 0);
+    }
+  }
+  
+  // Fallback: Convert processed RGBA to BGR for visualization (when raw camera unavailable)
+  if (bgr_mat.empty()) {
+    cv::Mat rgba_mat(height, width, CV_8UC4, const_cast<unsigned char*>(rgba_data));
+    cv::Mat flipped_rgba;
+    cv::flip(rgba_mat, flipped_rgba, 0);  // Flip for OpenGL coordinate system
+    cv::cvtColor(flipped_rgba, bgr_mat, cv::COLOR_RGBA2BGR);
+  }
+  
+  cv::Mat person_mask = cv::Mat::zeros(bgr_mat.size(), CV_8UC1);
+  
+  // Only run segmentation if background effects are enabled and MediaPipe is ready
+  if (segmentation_enabled && segmentation_initialized && mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+    // Smart timing for real-time streaming: update every 3-5 frames (12-20 FPS at 60 FPS input)
+    auto current_time = std::chrono::high_resolution_clock::now();
+    auto time_since_last = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_segmentation_time);
+    
+    bool should_run_segmentation = (frame_counter % 4 == 0) && (time_since_last.count() >= 50);  // Max 20 FPS segmentation
+    
+    if (should_run_segmentation) {
+      try {
+        // Use new advanced processing with background detection configuration
+        SegmentationResult result = mediapipe_segmentation->ProcessFrameAdvanced(bgr_mat);
+        
+        if (!result.confidence_mask.empty()) {
+          // Successfully got new segmentation with enhanced configuration
+          cv::Mat current_mask;
+          
+          // Ensure the confidence mask is in the right format [0,1] float
+          if (result.confidence_mask.type() != CV_32F) {
+            result.confidence_mask.convertTo(current_mask, CV_32F, 1.0/255.0);
+          } else {
+            result.confidence_mask.copyTo(current_mask);
+          }
+          
+          // Apply target class selection
+          if (target_class_selection_ == 2) {  // Background Focus
+            // For background focus, invert the mask (low confidence = background)
+            cv::Mat background_mask;
+            cv::threshold(current_mask, background_mask, ai_confidence_threshold_, 1.0, cv::THRESH_BINARY_INV);
+            background_mask.copyTo(current_mask);
+            std::cout << "[DEBUG] Background focus mode: inverted mask" << std::endl;
+          } else {
+            // For person focus or auto detect, apply threshold to confidence mask
+            cv::threshold(current_mask, current_mask, ai_confidence_threshold_, 1.0, cv::THRESH_BINARY);
+            std::cout << "[DEBUG] Person/Auto focus mode: thresholded mask" << std::endl;
+          }
+          
+          current_mask.copyTo(person_mask);
+          current_mask.copyTo(cached_mask);
+          last_segmentation_time = current_time;
+          
+          // Store for visualization (flip back to match display orientation)
+          cv::Mat display_mask;
+          cv::flip(person_mask, display_mask, 0);
+          
+          // Convert to proper format for visualization (CV_8UC1 [0,255])
+          cv::Mat viz_mask;
+          if (display_mask.type() == CV_32F) {
+            display_mask.convertTo(viz_mask, CV_8UC1, 255.0);
+          } else {
+            display_mask.copyTo(viz_mask);
+          }
+          viz_mask.copyTo(last_person_mask_);
+          
+          // Debug output every second
+          if (frame_counter % 60 == 0) {
+            double coverage = cv::sum(person_mask)[0] / (person_mask.type() == CV_32F ? 
+                                                        (1.0 * bgr_mat.rows * bgr_mat.cols) : 
+                                                        (255.0 * bgr_mat.rows * bgr_mat.cols));
+            std::cout << "[AI] MediaPipe Real-time: " << std::fixed << std::setprecision(1) 
+                      << coverage * 100.0 << "% person detected (streaming)" << std::endl;
+          }
+        } else {
+          // MediaPipe failed, use cached mask if available
+          if (!cached_mask.empty() && cached_mask.size() == bgr_mat.size()) {
+            cached_mask.copyTo(person_mask);
+          } else {
+            // No cached mask, fill as person for continuity
+            person_mask.setTo(255);
+          }
+        }
+      } catch (const std::exception& e) {
+        std::cout << "[AI] MediaPipe processing error: " << e.what() << std::endl;
+        // Use cached mask on error
+        if (!cached_mask.empty() && cached_mask.size() == bgr_mat.size()) {
+          cached_mask.copyTo(person_mask);
+        } else {
+          person_mask.setTo(255);
+        }
+      }
+    } else {
+      // Use cached mask for smooth streaming between updates
+      if (!cached_mask.empty() && cached_mask.size() == bgr_mat.size()) {
+        cached_mask.copyTo(person_mask);
+      } else {
+        // No cached mask available, assume person for continuity
+        person_mask.setTo(255);
+      }
+    }
+  } else if (segmentation_enabled) {
+    // MediaPipe not available but effects enabled - use simple fallback
+    // For streaming, better to assume person presence than heavy CV processing
+    person_mask.setTo(255);  
+  } else {
+    // No background effects - assume full person
+    person_mask.setTo(255);
+  }
+  
+  // Apply background effects based on current mode
+  cv::Mat processed_frame;
+  
+  // Convert beauty-filtered RGBA input to BGR for composition
+  cv::Mat beauty_rgba_mat(height, width, CV_8UC4, const_cast<unsigned char*>(rgba_data));
+  cv::Mat beauty_flipped_rgba;
+  cv::flip(beauty_rgba_mat, beauty_flipped_rgba, 0);  // Flip for OpenGL coordinate system
+  cv::Mat beauty_bgr_mat;
+  cv::cvtColor(beauty_flipped_rgba, beauty_bgr_mat, cv::COLOR_RGBA2BGR);
+  
+  if (background_mode_ == BackgroundMode::BLUR) {
+    // Apply background blur to beauty-filtered content
+    cv::Mat blurred_frame;
+    int kernel_size = static_cast<int>(background_blur_strength_);
+    if (kernel_size % 2 == 0) kernel_size++;
+    kernel_size = std::max(5, std::min(51, kernel_size));
+    cv::GaussianBlur(beauty_bgr_mat, blurred_frame, cv::Size(kernel_size, kernel_size), 0);
+    
+    // Blend person (beauty-filtered) with background (blurred beauty-filtered)
+    processed_frame = cv::Mat::zeros(beauty_bgr_mat.size(), CV_8UC3);
+    
+    // Handle different mask types (CV_32F [0,1] or CV_8UC1 [0,255])
+    bool is_float_mask = (person_mask.type() == CV_32F);
+    
+    for (int y = 0; y < beauty_bgr_mat.rows; y++) {
+      for (int x = 0; x < beauty_bgr_mat.cols; x++) {
+        float mask_val;
+        if (is_float_mask) {
+          mask_val = person_mask.at<float>(y, x);  // Already [0,1]
+        } else {
+          mask_val = person_mask.at<unsigned char>(y, x) / 255.0f;  // Convert [0,255] to [0,1]
+        }
+        
+        cv::Vec3b original = beauty_bgr_mat.at<cv::Vec3b>(y, x);
+        cv::Vec3b blurred = blurred_frame.at<cv::Vec3b>(y, x);
+        
+        for (int c = 0; c < 3; c++) {
+          processed_frame.at<cv::Vec3b>(y, x)[c] = 
+            cv::saturate_cast<unsigned char>(mask_val * original[c] + (1.0f - mask_val) * blurred[c]);
+        }
+      }
+    }
+  } else {
+    // No background effect or other modes - return beauty-filtered original
+    processed_frame = beauty_bgr_mat.clone();
+  }
+  
+  // Convert back to RGBA
+  cv::Mat processed_rgba;
+  cv::cvtColor(processed_frame, processed_rgba, cv::COLOR_BGR2RGBA);
+  cv::Mat final_rgba;
+  cv::flip(processed_rgba, final_rgba, 0);  // Flip back for OpenGL
+  
+  std::vector<unsigned char> result(final_rgba.total() * final_rgba.elemSize());
+  std::memcpy(result.data(), final_rgba.data, result.size());
+  
+  return result;
+}
+
+// Apply custom background replacement using MediaPipe segmentation
+std::vector<unsigned char> ApplyCustomBackground(const unsigned char* rgba_data, int width, int height) {
+  if (!rgba_data || width <= 0 || height <= 0 || !background_image_loaded_) {
+    // Return original if invalid data or no background loaded
+    std::vector<unsigned char> result(rgba_data, rgba_data + (width * height * 4));
+    return result;
+  }
+
+  
+  // Convert RGBA to BGR for OpenCV processing
+  cv::Mat rgba_mat(height, width, CV_8UC4, const_cast<unsigned char*>(rgba_data));
+  cv::Mat flipped_rgba;
+  cv::flip(rgba_mat, flipped_rgba, 0);  // Flip for OpenGL coordinate system
+  
+  cv::Mat bgr_mat;
+  cv::cvtColor(flipped_rgba, bgr_mat, cv::COLOR_RGBA2BGR);
+  
+  // Generate person mask using AI segmentation or advanced CV fallback
+  static cv::Mat cached_mask;
+  static int frame_skip_counter = 0;
+  
+  cv::Mat person_mask;
+  
+  if (frame_skip_counter % 4 == 0 || cached_mask.empty()) {
+    // Use MediaPipe segmentation (primary method) or fallback to GrabCut
+    bool segmentation_success = false;
+    
+    // Try MediaPipe segmentation first if available
+    if (mediapipe_segmentation && mediapipe_segmentation->IsReady()) {
+      // Use new advanced processing with background detection configuration
+      SegmentationResult result = mediapipe_segmentation->ProcessFrameAdvanced(bgr_mat);
+      
+      if (!result.confidence_mask.empty()) {
+        // Ensure the confidence mask is in the right format [0,1] float  
+        cv::Mat temp_mask;
+        if (result.confidence_mask.type() != CV_32F) {
+          result.confidence_mask.convertTo(temp_mask, CV_32F, 1.0/255.0);
+        } else {
+          result.confidence_mask.copyTo(temp_mask);
+        }
+        
+        // Apply target class selection for body detection
+        if (target_class_selection_ == 2) {  // Background Focus
+          // For background focus, invert the mask (low confidence = background)
+          cv::threshold(temp_mask, person_mask, ai_confidence_threshold_, 1.0, cv::THRESH_BINARY_INV);
+        } else {
+          // For person focus or auto detect, apply threshold to confidence mask
+          cv::threshold(temp_mask, person_mask, ai_confidence_threshold_, 1.0, cv::THRESH_BINARY);
+        }
+        segmentation_success = true;
+      }
+    }
+    
+    if (!segmentation_success) {
+      // Advanced fallback using GrabCut
+      cv::Mat small_frame;
+      cv::resize(bgr_mat, small_frame, cv::Size(256, 256));
+      
+      cv::Mat grabcut_mask = cv::Mat::zeros(256, 256, CV_8UC1);
+      cv::Rect person_rect(64, 32, 128, 192);
+      cv::Mat bgd_model, fgd_model;
+      
+      try {
+        cv::grabCut(small_frame, grabcut_mask, person_rect, bgd_model, fgd_model, 2, cv::GC_INIT_WITH_RECT);
+        
+        cv::Mat result_mask = cv::Mat::zeros(256, 256, CV_8UC1);
+        for (int y = 0; y < 256; y++) {
+          for (int x = 0; x < 256; x++) {
+            if (grabcut_mask.at<uint8_t>(y, x) == cv::GC_FGD || grabcut_mask.at<uint8_t>(y, x) == cv::GC_PR_FGD) {
+              result_mask.at<uint8_t>(y, x) = 255;
+            }
+          }
+        }
+        
+        cv::resize(result_mask, person_mask, bgr_mat.size());
+        
+      } catch (const cv::Exception& e) {
+        // Final fallback
+        person_mask = cv::Mat::zeros(bgr_mat.size(), CV_8UC1);
+        cv::Point center(bgr_mat.cols/2, bgr_mat.rows/2);
+        cv::Size axes(bgr_mat.cols/4, bgr_mat.rows/3);
+        cv::ellipse(person_mask, center, axes, 0, 0, 360, cv::Scalar(255), -1);
+      }
+    }
+    
+    cached_mask = person_mask.clone();
+  } else {
+    if (!cached_mask.empty() && cached_mask.size() == bgr_mat.size()) {
+      cached_mask.copyTo(person_mask);
+    }
+  }
+  frame_skip_counter++;
+  
+  // Prepare custom background
+  cv::Mat background_resized;
+  cv::resize(custom_background_image_, background_resized, cv::Size(width, height));
+  
+  // Blend person (original) with custom background
+  cv::Mat processed_frame = cv::Mat::zeros(bgr_mat.size(), CV_8UC3);
+  for (int y = 0; y < bgr_mat.rows; y++) {
+    for (int x = 0; x < bgr_mat.cols; x++) {
+      float mask_val = person_mask.at<unsigned char>(y, x) / 255.0f;
+      cv::Vec3b original = bgr_mat.at<cv::Vec3b>(y, x);
+      cv::Vec3b background = background_resized.at<cv::Vec3b>(y, x);
+      
+      for (int c = 0; c < 3; c++) {
+        processed_frame.at<cv::Vec3b>(y, x)[c] = 
+          cv::saturate_cast<unsigned char>(mask_val * original[c] + (1.0f - mask_val) * background[c]);
+      }
+    }
+  }
+  
+  // Convert back to RGBA
+  cv::Mat processed_rgba;
+  cv::cvtColor(processed_frame, processed_rgba, cv::COLOR_BGR2RGBA);
+  cv::Mat final_rgba;
+  cv::flip(processed_rgba, final_rgba, 0);  // Flip back for OpenGL
+  
+  std::vector<unsigned char> result(final_rgba.total() * final_rgba.elemSize());
+  std::memcpy(result.data(), final_rgba.data, result.size());
+  
+  return result;
 }
 
 // Render RGBA data to screen
@@ -1720,55 +2389,119 @@ void RenderFrame() {
       }
 #endif
 
-      // Render RGBA data to screen
-      if (show_face_detection_ && opencv_face_detector_) {
-        // Create a copy of the buffer for debug visualization
-        std::vector<unsigned char> debug_buffer(buffer, buffer + (width * height * 4));
+      // Apply MediaPipe background effects first, then face detection overlay
+      std::vector<unsigned char> final_buffer;
+      
+      // Apply background effect based on selected mode
+      switch (background_mode_) {
+        case BackgroundMode::NONE:
+          // No background effect - use original frame
+          final_buffer.assign(buffer, buffer + (width * height * 4));
+          break;
+          
+        case BackgroundMode::BLUR:
+          // Apply AI-based blur segmentation
+          final_buffer = ApplyAISegmentation(buffer, width, height);
+          break;
+          
+        case BackgroundMode::CUSTOM_IMAGE:
+          // Apply custom background replacement
+          if (background_image_loaded_) {
+            final_buffer = ApplyCustomBackground(buffer, width, height);
+          } else {
+            // Fallback to original if no custom image loaded
+            final_buffer.assign(buffer, buffer + (width * height * 4));
+          }
+          break;
+          
+        default:
+          final_buffer.assign(buffer, buffer + (width * height * 4));
+          break;
+      }
+      
+      // Add overlays if enabled
+      bool has_overlays = (show_face_detection_ && opencv_face_detector_) || (show_body_detection_ && !last_person_mask_.empty());
+      
+      if (has_overlays) {
+        cv::Mat debug_frame(height, width, CV_8UC4, final_buffer.data());
         
-        // Convert to OpenCV Mat for drawing overlays
-        cv::Mat debug_frame(height, width, CV_8UC4, debug_buffer.data());
-        
-        // Get the last detected faces and eyes from the face detector
-        std::vector<cv::Rect> faces = opencv_face_detector_->GetLastDetectedFaces();
-        std::vector<cv::Rect> eyes = opencv_face_detector_->GetLastDetectedEyes();
-        
-        if (!faces.empty()) {
-          // Get camera frame dimensions for scaling
-          cv::Mat current_frame = source_camera_->GetLatestFrame();
-          if (!current_frame.empty()) {
-            float scale_x = (float)width / current_frame.cols;
-            float scale_y = (float)height / current_frame.rows;
-            
-            // Draw face rectangles
-            for (const auto& face : faces) {
-              cv::Rect scaled_face(
-                (int)(face.x * scale_x), (int)(face.y * scale_y),
-                (int)(face.width * scale_x), (int)(face.height * scale_y)
-              );
-              cv::rectangle(debug_frame, scaled_face, cv::Scalar(0, 255, 0, 255), 2);
-              cv::putText(debug_frame, "Face", 
-                         cv::Point(scaled_face.x, scaled_face.y - 10),
-                         cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0, 255), 1);
-            }
-            
-            // Draw eye rectangles
-            int eye_count = 0;
-            for (const auto& eye : eyes) {
-              cv::Rect scaled_eye(
-                (int)(eye.x * scale_x), (int)(eye.y * scale_y),
-                (int)(eye.width * scale_x), (int)(eye.height * scale_y)
-              );
-              cv::rectangle(debug_frame, scaled_eye, cv::Scalar(255, 0, 0, 255), 2);
-              cv::putText(debug_frame, "Eye" + std::to_string(++eye_count),
-                         cv::Point(scaled_eye.x, scaled_eye.y - 5),
-                         cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 0, 0, 255), 1);
+        // Add face detection overlay if enabled
+        if (show_face_detection_ && opencv_face_detector_) {
+          // Get the last detected faces and eyes from the face detector
+          std::vector<cv::Rect> faces = opencv_face_detector_->GetLastDetectedFaces();
+          std::vector<cv::Rect> eyes = opencv_face_detector_->GetLastDetectedEyes();
+          
+          if (!faces.empty()) {
+            // Get camera frame dimensions for scaling
+            cv::Mat current_frame = source_camera_->GetLatestFrame();
+            if (!current_frame.empty()) {
+              float scale_x = (float)width / current_frame.cols;
+              float scale_y = (float)height / current_frame.rows;
+              
+              // Draw face rectangles
+              for (const auto& face : faces) {
+                cv::Rect scaled_face(
+                  (int)(face.x * scale_x), (int)(face.y * scale_y),
+                  (int)(face.width * scale_x), (int)(face.height * scale_y)
+                );
+                cv::rectangle(debug_frame, scaled_face, cv::Scalar(0, 255, 0, 255), 2);
+                cv::putText(debug_frame, "Face",
+                           cv::Point(scaled_face.x, scaled_face.y - 10),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0, 255), 1);
+              }
+              
+              // Draw eye rectangles
+              int eye_count = 0;
+              for (const auto& eye : eyes) {
+                cv::Rect scaled_eye(
+                  (int)(eye.x * scale_x), (int)(eye.y * scale_y),
+                  (int)(eye.width * scale_x), (int)(eye.height * scale_y)
+                );
+                cv::rectangle(debug_frame, scaled_eye, cv::Scalar(255, 0, 0, 255), 2);
+                cv::putText(debug_frame, "Eye" + std::to_string(++eye_count),
+                           cv::Point(scaled_eye.x, scaled_eye.y - 5),
+                           cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 0, 0, 255), 1);
+              }
             }
           }
+        }        // Add body detection overlay if enabled
+        if (show_body_detection_ && !last_person_mask_.empty()) {
+          // Scale the stored mask to current frame size if needed
+          cv::Mat display_mask;
+          if (last_person_mask_.size() != cv::Size(width, height)) {
+            cv::resize(last_person_mask_, display_mask, cv::Size(width, height));
+          } else {
+            display_mask = last_person_mask_;
+          }
+          
+          // Create efficient colored overlay using OpenCV operations
+          cv::Mat mask_3channel;
+          cv::cvtColor(display_mask, mask_3channel, cv::COLOR_GRAY2BGR);
+          
+          // Create green overlay only where mask > 128
+          cv::Mat green_overlay = cv::Mat::zeros(height, width, CV_8UC3);
+          green_overlay.setTo(cv::Scalar(0, 255, 0), display_mask > 128);
+          
+          // Convert debug_frame to 3 channel for blending
+          cv::Mat debug_3channel;
+          cv::cvtColor(debug_frame, debug_3channel, cv::COLOR_BGRA2BGR);
+          
+          // Efficient alpha blending: frame * 0.7 + overlay * 0.3 where mask > 128
+          cv::Mat blended;
+          cv::addWeighted(debug_3channel, 0.7, green_overlay, 0.3, 0, blended, CV_8UC3);
+          
+          // Copy blended result back only where mask is active
+          cv::Mat mask_bool = display_mask > 128;
+          blended.copyTo(debug_3channel, mask_bool);
+          
+          // Convert back to BGRA
+          cv::cvtColor(debug_3channel, debug_frame, cv::COLOR_BGR2BGRA);
         }
         
-        RenderRGBAToScreen(debug_buffer.data(), width, height);
+        RenderRGBAToScreen(final_buffer.data(), width, height);
       } else {
-        RenderRGBAToScreen(buffer, width, height);
+        // No overlays, just render with background effects
+        RenderRGBAToScreen(final_buffer.data(), width, height);
       }
     }
   }

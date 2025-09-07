@@ -11,6 +11,7 @@
 #include "gpupixel/gpupixel_define.h"
 // utils
 #include "gpupixel/utils/math_toolbox.h"
+#include "gpupixel/utils/mediapipe_segmentation.h"
 
 // source
 #include "gpupixel/source/source.h"

@@ -24,6 +24,8 @@ set(common_source_files
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/math_toolbox.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/dispatch_queue.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/util.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/mediapipe_segmentation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/rvm_processor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/filter/contrast_filter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/filter/glass_sphere_filter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/filter/brightness_filter.cc
@@ -71,12 +73,16 @@ set(common_source_files
     ${CMAKE_CURRENT_SOURCE_DIR}/filter/beauty_face_filter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/filter/face_reshape_filter.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/filter/white_balance_filter.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/filter/smooth_toon_filter.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/filter/smooth_toon_filter.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/filter/background_effect_filter.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/background/person_segmentator.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/background/background_processor.cc)
 
 # Add face detection source files based on options
 if(GPUPIXEL_ENABLE_FACE_DETECTOR)
   list(APPEND common_source_files
-       ${CMAKE_CURRENT_SOURCE_DIR}/face_detector/face_detector.cc)
+       ${CMAKE_CURRENT_SOURCE_DIR}/face_detector/face_detector.cc
+       ${CMAKE_CURRENT_SOURCE_DIR}/face_detector/opencv_face_detector.cpp)
 endif()
 
 set(objc_source_files ${CMAKE_CURRENT_SOURCE_DIR}/sink/sink_view.cc
@@ -382,7 +388,8 @@ find_package(OpenCV REQUIRED)
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   target_link_libraries(
     ${gpupixel_libs_name} PRIVATE GL libyuv::yuv stb::stb
-                                  glad::glad glfw::glfw ${OpenCV_LIBS})
+                                  glad::glad glfw::glfw ${OpenCV_LIBS} 
+                                  ghc::filesystem)
 
   # Windows platform dependencies
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
@@ -444,11 +451,14 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
 endif()
 
 if(GPUPIXEL_ENABLE_FACE_DETECTOR)
-  target_link_libraries(${gpupixel_libs_name} PRIVATE marsface::marsface)
-  if(APPLE)
-    target_link_libraries(${gpupixel_libs_name} PRIVATE mnn)
-  endif()
+  # Use OpenCV for face detection instead of mars-face-kit
+  find_package(OpenCV REQUIRED COMPONENTS core imgproc objdetect)
+  target_link_libraries(${gpupixel_libs_name} PRIVATE ${OpenCV_LIBS})
+  target_include_directories(${gpupixel_libs_name} PRIVATE ${OpenCV_INCLUDE_DIRS})
 endif()
+
+# OpenCV DNN is already linked via OpenCV, no additional dependencies needed
+message(STATUS "Using OpenCV DNN for MediaPipe TensorFlow Lite inference")
 
 if(GPUPIXEL_INSTALL)
   # install header

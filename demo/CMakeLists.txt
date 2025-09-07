@@ -4,14 +4,27 @@
 # Find OpenCV for camera support
 find_package(OpenCV REQUIRED)
 
+
 set(GPL_APP_NAME "app")
 
 # ---- Source files configuration ----
 # add desktop application source files
 set(APP_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/desktop/app.cc")
 
+# add refactored component files
+list(APPEND APP_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/desktop/camera_manager.cc")
+list(APPEND APP_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/desktop/beauty_profile_manager.cc") 
+list(APPEND APP_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/desktop/filter_pipeline.cc")
+list(APPEND APP_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/desktop/virtual_camera.cc")
+
 # add OpenCV face detector
 list(APPEND APP_SOURCE_FILES "${PROJECT_SOURCE_DIR}/src/face_detector/opencv_face_detector.cc")
+
+# add background effects
+list(APPEND APP_SOURCE_FILES "${PROJECT_SOURCE_DIR}/src/background/person_segmentator.cc")
+list(APPEND APP_SOURCE_FILES "${PROJECT_SOURCE_DIR}/src/background/background_processor.cc")
+
+# MediaPipe segmentation is now included in the gpupixel library
 
 # add ImGui source files ImGui provides the GUI components for the desktop demo
 file(GLOB IMGUI_SOURCE_FILES "${PROJECT_SOURCE_DIR}/third_party/imgui/*.cpp"
@@ -28,6 +41,18 @@ target_include_directories(${GPL_APP_NAME}
                            PRIVATE ${PROJECT_SOURCE_DIR}/third_party/imgui
                                    ${PROJECT_SOURCE_DIR}/src
                                    ${OpenCV_INCLUDE_DIRS})
+
+# Link TensorFlow Lite for actual model inference
+if(TARGET tensorflow-lite)
+  target_link_libraries(${GPL_APP_NAME} PRIVATE tensorflow-lite)
+  target_compile_definitions(${GPL_APP_NAME} PRIVATE TFLITE_AVAILABLE)
+endif()
+
+# Link FlatBuffers for TensorFlow Lite model reading
+if(TARGET flatbuffers)
+  target_include_directories(${GPL_APP_NAME} PRIVATE ${flatbuffers_SOURCE_DIR}/include)
+  target_link_libraries(${GPL_APP_NAME} PRIVATE flatbuffers)
+endif()
 
 # ---- Platform-specific configuration ----
 # Each platform requires different compiler flags and linked libraries

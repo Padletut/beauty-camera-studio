@@ -175,3 +175,58 @@ add_library(ghc::filesystem ALIAS ghc_filesystem)
 target_include_directories(
   ghc_filesystem
   INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ghc/include>)
+
+# ---- MediaPipe configuration ----
+# MediaPipe C++ Tasks API for segmentation  
+# Note: Pure C++ implementation - no Python dependencies needed
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+  message(STATUS "Using optimized computer vision algorithms for accurate person segmentation")
+endif()
+
+# ---- FlatBuffers configuration ----
+# FlatBuffers for reading TensorFlow Lite models (.tflite files)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CPM.cmake)
+
+message(STATUS "Setting up FlatBuffers for TensorFlow Lite model reading...")
+
+CPMAddPackage(
+  NAME flatbuffers
+  GITHUB_REPOSITORY google/flatbuffers
+  GIT_TAG v23.5.26
+  OPTIONS
+    "FLATBUFFERS_BUILD_TESTS OFF"
+    "FLATBUFFERS_INSTALL ON"
+    "FLATBUFFERS_BUILD_FLATLIB ON"
+    "FLATBUFFERS_BUILD_FLATC OFF"
+)
+
+if(flatbuffers_ADDED)
+  message(STATUS "FlatBuffers successfully configured for TensorFlow Lite support")
+  add_library(flatbuffers::flatbuffers ALIAS flatbuffers)
+else()
+  message(WARNING "Failed to download FlatBuffers")
+endif()
+
+# ---- ONNX Runtime configuration ----
+# ONNX Runtime for MediaPipe selfie segmentation
+
+message(STATUS "Setting up ONNX Runtime for MediaPipe selfie segmentation...")
+
+set(ONNXRUNTIME_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-1.16.3)
+
+# Check if ONNX Runtime is available
+if(EXISTS ${ONNXRUNTIME_ROOT_PATH}/include/onnxruntime_cxx_api.h)
+  message(STATUS "ONNX Runtime found at: ${ONNXRUNTIME_ROOT_PATH}")
+  
+  # Create ONNX Runtime imported library
+  add_library(onnxruntime SHARED IMPORTED GLOBAL)
+  set_target_properties(onnxruntime PROPERTIES
+    IMPORTED_LOCATION ${ONNXRUNTIME_ROOT_PATH}/lib/libonnxruntime.so
+    INTERFACE_INCLUDE_DIRECTORIES ${ONNXRUNTIME_ROOT_PATH}/include
+  )
+  
+  add_library(onnxruntime::onnxruntime ALIAS onnxruntime)
+  message(STATUS "ONNX Runtime configured successfully")
+else()
+  message(WARNING "ONNX Runtime not found - MediaPipe segmentation will not work")
+endif()

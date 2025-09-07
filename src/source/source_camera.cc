@@ -107,14 +107,32 @@ void SourceCamera::CaptureLoop() {
 }
 
 void SourceCamera::ProcessFrame(const cv::Mat& frame) {
-  // Convert BGR to RGB
-  cv::Mat rgb_frame;
-  cv::cvtColor(frame, rgb_frame, cv::COLOR_BGR2RGB);
+  // Debug: Check original camera frame format
+  static bool debug_printed = false;
+  if (!debug_printed) {
+    cv::Vec3b sample_bgr = frame.at<cv::Vec3b>(frame.rows/2, frame.cols/2);
+    std::cout << "[CAMERA DEBUG] Original BGR pixel: B=" << (int)sample_bgr[0] 
+              << " G=" << (int)sample_bgr[1] 
+              << " R=" << (int)sample_bgr[2] << std::endl;
+  }
+  
+  // Convert BGR to RGBA directly (this matches OpenGL RGBA expectation better)
+  cv::Mat rgba_frame;
+  cv::cvtColor(frame, rgba_frame, cv::COLOR_BGR2RGBA);
+  
+  if (!debug_printed) {
+    cv::Vec4b sample_rgba = rgba_frame.at<cv::Vec4b>(rgba_frame.rows/2, rgba_frame.cols/2);
+    std::cout << "[CAMERA DEBUG] Converted RGBA pixel: R=" << (int)sample_rgba[0] 
+              << " G=" << (int)sample_rgba[1] 
+              << " B=" << (int)sample_rgba[2] 
+              << " A=" << (int)sample_rgba[3] << std::endl;
+    debug_printed = true;
+  }
   
   // Store frame for main thread processing
   {
     std::lock_guard<std::mutex> lock(frame_mutex_);
-    latest_frame_ = rgb_frame.clone();
+    latest_frame_ = rgba_frame.clone();
     frame_available_ = true;
   }
 }
@@ -153,13 +171,10 @@ void SourceCamera::TriggerPipelineProcessing() {
   // Create framebuffer and upload texture data like SourceImage does
   auto framebuffer = GPUPixelContext::GetInstance()->GetFramebufferFactory()->CreateFramebuffer(width, height, true);
   
-  // Convert RGB to RGBA since OpenGL texture expects RGBA
-  cv::Mat rgba_frame;
-  cv::cvtColor(current_processing_frame_, rgba_frame, cv::COLOR_RGB2RGBA);
-  
+  // Frame is already RGBA from ProcessFrame, no need to convert again
   // Upload RGBA data to the framebuffer's texture
   glBindTexture(GL_TEXTURE_2D, framebuffer->GetTexture());
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba_frame.data);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, current_processing_frame_.data);
   glBindTexture(GL_TEXTURE_2D, 0);
   
   // Set as input framebuffer and trigger rendering

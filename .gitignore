@@ -7,6 +7,28 @@ docs/docs/.vitepress/cache/
 docs/docs/.vitepress/dist/
 output/
 
+# Test executables and temporary files
+test_*
+!test_*.cpp
+!test_*.h
+*.tmp
+*.log
+
+# Downloaded model archives and large files
+*.tgz
+*.tar.gz
+*.zip
+third_party/onnxruntime-*/
+models/
+
+# Development scripts and reports
+system_status_report.sh
+setup_*.sh
+download_*.sh
+
+# ImGui configuration
+imgui.ini
+
 # AppImage build outputs
 *.AppImage
 appimage/build/
@@ -655,3 +677,14 @@ demo/android/app/libs
 gpupixel/android/java/gpupixel/.cxx
 imgui.ini
 appimage/
+test_background_class_selection.cpp
+test_both_models_rvm.cpp
+test_config_validation.cpp
+test_deeplabv3_background.cpp
+test_deeplabv3_console.cpp
+test_deeplabv3.cpp
+test_mediapipe_config.cpp
+test_models.cpp
+test_modnet_loading.cpp
+test_rvm_demo.cpp
+test_rvm_enhanced.cpp

@@ -6,11 +6,9 @@
  */
 
 #include "gpupixel/face_detector/face_detector.h"
+#include "opencv_face_detector.h"
 #include <cassert>
-#include "mars_vision/mars_defines.h"
-#include "mars_vision/mars_face_landmarker.h"
-#include "utils/filesystem.h"
-#include "utils/logging.h"
+#include <memory>
 #include "utils/util.h"
 
 namespace gpupixel {
@@ -19,55 +17,42 @@ std::shared_ptr<FaceDetector> FaceDetector::Create() {
   return std::shared_ptr<FaceDetector>(new FaceDetector());
 }
 
-FaceDetector::FaceDetector() {
-  auto path = Util::GetResourcePath() / "models";
-
-  if (fs::exists(path)) {
-    mars_face_detector_ = mars_vision::MarsFaceLandmarker::Create();
-
-    mars_vision::FaceLandmarkerOptions landmarkerOptions;
-    landmarkerOptions.model_path = path.string();
-    landmarkerOptions.running_mode = mars_vision::RunningMode::VIDEO;
-
-    mars_face_detector_->Init(landmarkerOptions);
-  } else {
-    LOG_ERROR("FaceDetector: models path not found: {}", path.string());
-    assert(false && "FaceDetector: models path not found");
+FaceDetector::FaceDetector() : opencv_detector_(nullptr) {
+  // Initialize OpenCV face detector
+  opencv_detector_ = std::make_shared<OpenCVFaceDetector>();
+  if (!opencv_detector_->Init()) {
+    std::cerr << "Failed to initialize OpenCV face detector" << std::endl;
+    opencv_detector_.reset();
   }
 }
 
-std::vector<float> FaceDetector::Detect(const uint8_t* data,
-                                        int width,
-                                        int height,
-                                        int stride,
-                                        GPUPIXEL_MODE_FMT fmt,
-                                        GPUPIXEL_FRAME_TYPE type) {
-  mars_vision::MarsImage image;
-  image.data = (uint8_t*)data;
-  image.width = width == stride / 4 ? width : stride / 4;
-  image.height = height;
+FaceDetector::~FaceDetector() {
+  opencv_detector_.reset();
+}
+
+std::vector<float> FaceDetector::Detect(const uint8_t* data, int width,
+                                      int height, int stride,
+                                      GPUPIXEL_MODE_FMT fmt,
+                                      GPUPIXEL_FRAME_TYPE type) {
+  if (!opencv_detector_) {
+    return std::vector<float>();
+  }
+  
+  // Convert input data to OpenCV Mat
+  cv::Mat frame;
   if (type == GPUPIXEL_FRAME_TYPE_RGBA) {
-    image.format = mars_vision::MarsImageFormat::RGBA;
+    cv::Mat rgba_frame(height, width, CV_8UC4, (void*)data, stride);
+    cv::cvtColor(rgba_frame, frame, cv::COLOR_RGBA2BGR);
   } else if (type == GPUPIXEL_FRAME_TYPE_BGRA) {
-    image.format = mars_vision::MarsImageFormat::BGRA;
+    cv::Mat bgra_frame(height, width, CV_8UC4, (void*)data, stride);
+    cv::cvtColor(bgra_frame, frame, cv::COLOR_BGRA2BGR);
+  } else {
+    // Assume BGR format
+    frame = cv::Mat(height, width, CV_8UC3, (void*)data, stride);
   }
-  image.stride = stride;
-  image.rotate_type = mars_vision::RotateType::CLOCKWISE_0;
-  image.timestamp = 0;
-
-  std::vector<mars_vision::FaceLandmarkerResult> face_results;
-  std::vector<float> landmarks;
-
-  mars_face_detector_->Detect(image, face_results);
-  // only support one face
-  for (auto& result : face_results) {
-    for (auto& point : result.key_points) {
-      landmarks.push_back(point.x / width);
-      landmarks.push_back(point.y / height);
-    }
-  }
-
-  return landmarks;
+  
+  // Use OpenCV face detector
+  return opencv_detector_->DetectFace(frame);
 }
 
 }  // namespace gpupixel

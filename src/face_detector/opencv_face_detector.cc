@@ -16,18 +16,34 @@ OpenCVFaceDetector::~OpenCVFaceDetector() {
 }
 
 bool OpenCVFaceDetector::Init() {
-    // Load Haar cascade classifiers
-    std::string face_cascade_path = "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml";
-    std::string eye_cascade_path = "/usr/share/opencv4/haarcascades/haarcascade_eye.xml";
-    
+    // Load Haar cascade classifiers - try multiple paths
+    std::string face_cascade_path = "models/haarcascade_frontalface_alt.xml";
     if (!face_cascade_.load(face_cascade_path)) {
-        std::cerr << "Error loading face cascade from: " << face_cascade_path << std::endl;
-        return false;
+        // Try system installation path
+        face_cascade_path = "/usr/share/opencv4/haarcascades/haarcascade_frontalface_alt.xml";
+        if (!face_cascade_.load(face_cascade_path)) {
+            // Try local path
+            face_cascade_path = "/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_alt.xml";
+            if (!face_cascade_.load(face_cascade_path)) {
+                std::cerr << "Error loading face cascade from: " << face_cascade_path << std::endl;
+                std::cerr << "Failed to initialize OpenCV face detector" << std::endl;
+                return false;
+            }
+        }
     }
     
+    std::string eye_cascade_path = "models/haarcascade_eye_tree_eyeglasses.xml";
     if (!eye_cascade_.load(eye_cascade_path)) {
-        std::cerr << "Error loading eye cascade from: " << eye_cascade_path << std::endl;
-        return false;
+        // Try system installation path
+        eye_cascade_path = "/usr/share/opencv4/haarcascades/haarcascade_eye_tree_eyeglasses.xml";
+        if (!eye_cascade_.load(eye_cascade_path)) {
+            // Try local path  
+            eye_cascade_path = "/usr/local/share/opencv4/haarcascades/haarcascade_eye_tree_eyeglasses.xml";
+            if (!eye_cascade_.load(eye_cascade_path)) {
+                std::cerr << "Warning: Could not load eye cascade from: " << eye_cascade_path << std::endl;
+                // Eye detection is optional, continue without it
+            }
+        }
     }
     
     initialized_ = true;
@@ -40,9 +56,9 @@ std::vector<float> OpenCVFaceDetector::DetectFace(const cv::Mat& frame) {
         return std::vector<float>();
     }
     
-    // Convert to grayscale for detection
+    // Convert to grayscale for detection (frame is now RGBA from camera)
     cv::Mat gray;
-    cv::cvtColor(frame, gray, cv::COLOR_RGB2GRAY);
+    cv::cvtColor(frame, gray, cv::COLOR_RGBA2GRAY);
     
     // Detect faces
     std::vector<cv::Rect> faces;
